@@ -76,7 +76,7 @@ def var_est_fun(N, x, y, a, cov_fun, cov_fun_per, sigma, rho, nu, p, mesh_size=1
 
     return var
 
-def compute_alpha_beta(x, y, a, m_0, cov_fun, cov_fun_per, sigma=1, rho=0.3, nu=0.5, p=1, pol_degree=1):
+def compute_alpha(x, y, a, m_0, cov_fun, cov_fun_per, sigma=1, rho=0.3, nu=0.5, p=1, pol_degree=1):
     '''
     Computes alpha in E[Q_M - Q] = C * M ^ (-alpha). Uses Y_l_est_fun.
 
@@ -213,7 +213,7 @@ def MC_simulation(N, x, y, a, alpha, var, cov_fun, cov_fun_per, mesh_size=8, pol
 
     return rmse, total_time
 
-# below is an example of computing the circulant embedding eigenvalues
+# below is an example of running a Monte Carlo simulation for a given accuracy
 # uncomment to run
 # if __name__ == "__main__":
 #     # the value at which to compute E[p(x,y)]
@@ -238,7 +238,7 @@ def MC_simulation(N, x, y, a, alpha, var, cov_fun, cov_fun_per, mesh_size=8, pol
 #     # var_val = var_est_fun(N=100, x=x_val, y=y_val, a=a_val, cov_fun=cov_functions.Matern_cov, cov_fun_per=periodisation_smooth.periodic_cov_fun, sigma=sigma, rho=rho, nu=nu, p=p_val, mesh_size=128, pol_degree=pol_degree_val)
 
 #     # estimate alpha and C_alpha in the discretisation error assumption
-#     alpha_val, C_alpha = compute_alpha_beta(x=x_val, y=y_val, a=a_val, m_0=m_0_val, cov_fun=cov_functions.Matern_cov, cov_fun_per=periodisation_smooth.periodic_cov_fun, sigma=sigma, rho=rho, nu=nu, p=p_val, pol_degree=pol_degree_val)
+#     alpha_val, C_alpha = compute_alpha(x=x_val, y=y_val, a=a_val, m_0=m_0_val, cov_fun=cov_functions.Matern_cov, cov_fun_per=periodisation_smooth.periodic_cov_fun, sigma=sigma, rho=rho, nu=nu, p=p_val, pol_degree=pol_degree_val)
 
 #     # these are the pre-computed values which you can use
 #     # var_val = 0.0018769639289535666

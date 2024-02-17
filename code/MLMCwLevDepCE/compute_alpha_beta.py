@@ -1,3 +1,5 @@
+#!/work/sc073/sc073/s2079009/miniconda3/bin/python
+
 from fenics import *
 from pyfftw import *
 from numpy.random import default_rng
@@ -6,7 +8,7 @@ import logging
 import sys
 sys.path.insert(0, '/home/s2079009/MAC-MIGS/PhD/PhD_code/')
 from utils import cov_functions
-from MLMCwCE import estimate_samples
+from MLMCwLevDepCE import estimate_samples_LD
 
 # suppress information messages (printing takes more time)
 set_log_active(False)
@@ -15,11 +17,10 @@ logging.getLogger('FFC').setLevel(logging.WARNING)
 # generator for random variables
 rng = default_rng()
 
-def compute_alpha_beta(J1, J2, x, y, a, m_0, cov_fun, pol_degree=1, rho=0.3, sigma=1, nu=0.5, p=1):
+def compute_alpha_beta(J1, J2, cov_fun, x, y, a, m_0, pol_degree=1, sigma=1, rho=0.3, nu=0.5, p=1):
     '''
     Computes alpha in E[Q_M - Q] = C * M ^ (-alpha), beta in V[Q_M-Q] = C * M ^ (-beta) and gamma in Cost = C * M ^ gamma by computing approximations on different levels. Uses Y_l_est_fun.
 
-    :param m_KL: number of KL modes to be included in KL-expansion.
     :param x: the x point at which to compute E[p(x,y)].
     :param y: the y point at which to compute E[p(x,y)].
     :param a: the RHS constant of the PDE.
@@ -49,13 +50,13 @@ def compute_alpha_beta(J1, J2, x, y, a, m_0, cov_fun, pol_degree=1, rho=0.3, sig
     Y_ls = []
 
     # number of samples needed to compute initial estimate of sample variance on each level
-    Ns = [10000, 5000, 2500, 1250, 625, 315, 160]
+    Ns = [10000, 5000, 2500, 1200, 500, 250, 100]
 
     # use 7 levels - from 0 to 6
     for l in range(7):
         # for each level, compute expectation and variance
         Y_hat, Y_hat_var, Y_l = \
-            estimate_samples.Y_l_est_fun(Ns[l], J1, J2, x, y, a, l, m_0, cov_fun, pol_degree, sigma, rho, nu, p)
+            estimate_samples_LD.Y_l_not_smoothed_est_fun(Ns[l], J1, J2, cov_fun, x, y, a, l, m_0, pol_degree, sigma, rho, nu, p)
 
         # save current values
         Ms[l] = (m_0 * 2**l) ** 2
@@ -91,12 +92,12 @@ def main():
     # norm to be used in covariance function of random field
     p_val = 1
 
-    M_vec, Y_hat_vec, alpha_val, C_alpha, Y_hat_var_vec, beta_val, C_beta, Y_ls_vec = compute_alpha_beta(J1=J1_val, J2=J2_val, x=x_val, y=y_val, a=a_val, m_0=m_0_val, cov_fun=cov_functions.expopnential_cov, pol_degree=pol_degree_val, rho=rho, sigma=sigma, nu=nu, p=p_val)
+    M_vec, Y_hat_vec, alpha_val, C_alpha, Y_hat_var_vec, beta_val, C_beta, Y_ls_vec = compute_alpha_beta(J1=J1_val, J2=J2_val, cov_fun=cov_functions.expopnential_cov, x=x_val, y=y_val, a=a_val, m_0=m_0_val, pol_degree=pol_degree_val, sigma=sigma, rho=rho, nu=nu, p=p_val)
 
-    print(alpha_val)
-    print(C_alpha)
-    print(beta_val)
-    print(C_beta)
+    print(f'alpha_val={alpha_val}')
+    print(f'C_alpha={C_alpha}')
+    print(f'beta_val={beta_val}')
+    print(f'C_beta={C_beta}')
 
     np.save('./data/Y_hat_vec.npy', Y_hat_vec, allow_pickle=True)
     np.save('./data/Y_hat_var_vec.npy', Y_hat_var_vec, allow_pickle=True)
