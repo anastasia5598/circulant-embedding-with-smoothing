@@ -1,15 +1,16 @@
 from fenics import *
 from pyfftw import *
 from numpy.random import default_rng
-import numpy as np
-from tqdm import tqdm
 import logging
-import sys
-sys.path.insert(0, '/home/s2079009/MAC-MIGS/PhD/PhD_code/')
-from utils import cov_functions
-from utils import PDE_solver
-from utils import circ_embedding
-from utils import periodisation_smooth
+import math
+import numpy as np
+from scipy.optimize import fsolve
+# from tqdm import tqdm
+
+import cov_functions
+import PDE_solver
+import circ_embedding
+import periodisation_smooth
 
 # suppress information messages (printing takes more time)
 set_log_active(False)
@@ -18,7 +19,25 @@ logging.getLogger('FFC').setLevel(logging.WARNING)
 # generator for random variables
 rng = default_rng()
 
-def Y_l_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degree=1, sigma=1, rho=0.3, nu=0.5, p=1):
+def k_solver(k_l, m, alpha, C_alpha, C_tilde_alpha, nu):
+    '''
+    Equation to solve to find number of eigenvalues to drop per level.
+
+    :param k_l: number of eigenvalues to drop per level
+    :param m: mesh size
+    :param alpha: the value of alpha required for Richardson extrapolation.
+    :param C_alpha: the constant in |E[Q_l - Q_{l-1}]| = C_\alpha h^\alpha. 
+    :param C_tilde_alpha: the constant in |E[Q_l - \tilde{Q}_{l-1}]| = \tilde{C}_\alpha h^\alpha. 
+    :param nu: smoothness of the covariance function.
+
+    :return:
+        f - LHS for equation f(x) = 0 to solve.
+    '''
+    s=(2*m)**2 # in 2D
+    C = (s - k_l)**(-(1+nu)/2)
+    return C*k_l - np.exp(C_alpha) / 2*np.exp(C_tilde_alpha)*m**alpha*np.sqrt(s)
+
+def Y_l_smoothed_est_fun(N, x, y, a, l, alpha, C_alpha, C_tilde_alpha, m_0, cov_fun, cov_fun_per, sigma=1, rho=0.3, nu=0.5, p=1, pol_degree=1):
     '''
     Computes the MC estimate of the expectation E[Y_l] and the variance V[Y_l] for a given level.
 
@@ -27,10 +46,17 @@ def Y_l_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degree=1,
     :param y: the y value at which to compute E[p(x,y)].
     :param a: the RHS constant.
     :param l: the level for which to compute E and V.
+    :param alpha: the value of alpha required for Richardson extrapolation.
+    :param C_alpha: the constant in |E[Q_l - Q_{l-1}]| = C_\alpha h^\alpha. 
+    :param C_tilde_alpha: the constant in |E[Q_l - \tilde{Q}_{l-1}]| = \tilde{C}_\alpha h^\alpha. 
     :param m_0: the mesh size on level zero.
-    :param pol_degree (default 1): the degree of the polynomials used in FEM approximation.
-    :param rho (default 0.3): correlation length of the covariance function.
+    :param cov_fun: covariance function.
+    :param cov_fun_per: periodisation function to be used.
     :param sigma (default 1): variance of the covariance function.
+    :param rho (default 0.3): correlation length of the covariance function.
+    :param nu: smoothness of the covariance function.
+    :param p: norm of covariance function argument.
+    :param pol_degree (defualt 1): the degree of the polynomials used in FEM approximation.
 
     :return:
         Y_hat - the expectation E[Y_l].
@@ -41,7 +67,6 @@ def Y_l_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degree=1,
     m_l = 2**l*m_0
     # variable for saving the approximation on current grid
     p_hats = np.zeros(N)
-    p_unsmoothed = np.zeros(N)
 
     # FEM setup for the 2 levels
     # treat level 0 differently as we only need one approximation
@@ -55,16 +80,14 @@ def Y_l_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degree=1,
     egnv = np.sqrt(egnv)
     egnv_tilde = np.zeros(d*d)
     indices = np.argsort(egnv)[::-1]
-    # k_ls = np.array([1, 2, 3, 8, 18, 42, 100, 241]) # rho = 0.1, nu = 1.5 point evaluation
-    # k_ls = np.array([1, 2, 3, 5, 11, 24, 50, 107]) # rho = 0.1, nu = 1.5 L2 norm
-    # k_ls = [48, 130, 483, 3000, 11429, 51437, 223212] # rho = 0.03, nu = 1.5 point evaluation
-    k_ls = [48, 128, 600, 800, 8192, 45536, 205321] # rho = 0.03, nu = 1.5 L2 norm
-    keep = int(d*d-k_ls[l])
+    k_l = fsolve(k_solver, 0, args=(m_per, alpha, C_alpha, C_tilde_alpha, nu))
+    keep = int(d*d-k_l)
     egnv_tilde[indices[:keep]] = egnv[indices[:keep]]
     V_2, f_2, bc_2 = PDE_solver.setup_PDE(m_l, pol_degree, a)
 
     # MC loop - solve PDE for each k and compute average
-    for i in tqdm(range(N)):
+    # for i in tqdm(range(N)): # Monte Carlo loop with status bar
+    for i in range(N):
         # generate N random variables from standard Gaussian distribution
         xi = rng.standard_normal(size=d*d)
 
@@ -136,7 +159,7 @@ def Y_l_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degree=1,
 
     return np.abs(Y_hat), Y_hat_var, p_hats
 
-def Y_l_not_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degree=1, sigma=1, rho=0.3, nu=0.5, p=1):
+def Y_l_not_smoothed_est_fun(N, x, y, a, l, alpha, C_alpha, C_tilde_alpha, m_0, cov_fun, cov_fun_per, sigma=1, rho=0.3, nu=0.5, p=1, pol_degree=1):
     '''
     Computes the MC estimate of the expectation E[Y_l] and the variance V[Y_l] for a given level.
 
@@ -145,10 +168,17 @@ def Y_l_not_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degre
     :param y: the y value at which to compute E[p(x,y)].
     :param a: the RHS constant.
     :param l: the level for which to compute E and V.
+    :param alpha: the value of alpha required for Richardson extrapolation.
+    :param C_alpha: the constant in |E[Q_l - Q_{l-1}]| = C_\alpha h^\alpha. 
+    :param C_tilde_alpha: the constant in |E[Q_l - \tilde{Q}_{l-1}]| = \tilde{C}_\alpha h^\alpha. 
     :param m_0: the mesh size on level zero.
-    :param pol_degree (default 1): the degree of the polynomials used in FEM approximation.
-    :param rho (default 0.3): correlation length of the covariance function.
+    :param cov_fun: covariance function.
+    :param cov_fun_per: periodisation function to be used.
     :param sigma (default 1): variance of the covariance function.
+    :param rho (default 0.3): correlation length of the covariance function.
+    :param nu: smoothness of the covariance function.
+    :param p: norm of covariance function argument.
+    :param pol_degree (defualt 1): the degree of the polynomials used in FEM approximation.
 
     :return:
         Y_hat - the expectation E[Y_l].
@@ -159,7 +189,6 @@ def Y_l_not_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degre
     m_l = 2**l*m_0
     # variable for saving the approximation on current grid
     p_hats = np.zeros(N)
-    p_unsmoothed = np.zeros(N)
 
     # FEM setup for the 2 levels
     # treat level 0 differently as we only need one approximation
@@ -172,16 +201,14 @@ def Y_l_not_smoothed_est_fun(N, cov_fun, cov_fun_per, x, y, a, l, m_0, pol_degre
     egnv = np.sqrt(egnv)
     egnv_tilde = np.zeros(d*d)
     indices = np.argsort(egnv)[::-1]
-    # k_ls = np.array([1, 2, 3, 8, 18, 42, 100, 241]) # rho = 0.1, nu = 1.5 point evaluation
-    # k_ls = np.array([1, 2, 3, 5, 11, 24, 50, 107]) # rho = 0.1, nu = 1.5 L2 norm
-    # k_ls = [48, 130, 483, 3000, 11429, 51437, 223212] # rho = 0.03, nu = 1.5 point evaluation
-    k_ls = [48, 128, 600, 800, 8192, 45536, 205321] # rho = 0.03, nu = 1.5 L2 norm
-    keep = int(d*d-k_ls[l])
+    k_l = fsolve(k_solver, 0, args=(m_per, alpha, C_alpha, C_tilde_alpha, nu))
+    keep = int(d*d-k_l)
     egnv_tilde[indices[:keep]] = egnv[indices[:keep]]
     V_2, f_2, bc_2 = PDE_solver.setup_PDE(m_l, pol_degree, a)
 
     # MC loop - solve PDE for each k and compute average
-    for i in tqdm(range(N)):
+    # for i in tqdm(range(N)): # Monte Carlo loop with status bar
+    for i in range(N):
         # generate N random variables from standard Gaussian distribution
         xi = rng.standard_normal(size=d*d)
 
